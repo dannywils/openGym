@@ -183,6 +183,11 @@ export function reset() { cache = null; keyCache = null; }
 /* ---------- what one provider owns ----------
    The only way the rest of the code reads the per-provider maps, so the shape stays here. */
 export const authFor = (cfg = load(), p = cfg.provider) => (cfg.auth && cfg.auth[p]) || null;
+export function codexLoginReady(cfg = load(), provider = cfg.provider) {
+  return provider === 'codex' && cfg.authMode === 'instance'
+    && authFor(cfg, provider)?.type === 'chatgpt-cli'
+    && fs.existsSync(path.join(CREDENTIAL_HOME, 'auth.json'));
+}
 export const modelFor = (cfg = load(), p = cfg.provider) => (cfg.models && cfg.models[p]) || (PROVIDERS[p] && PROVIDERS[p].defaultModel) || null;
 export const optionsFor = (cfg = load(), p = cfg.provider) => (cfg.providerOptions && cfg.providerOptions[p]) || {};
 export const boundUidFor = (cfg = load(), p = cfg.provider) => (cfg.boundUid && cfg.boundUid[p]) || null;
@@ -256,6 +261,9 @@ export function credentialFor(uid) {
     return { ok: false, reason: 'shared-account', message: SHARED_ACCOUNT_REFUSAL, mode: 'instance' };
   }
   const rec = authFor(cfg);
+  if (codexLoginReady(cfg)) {
+    return { ok: true, auth: null, type: rec.type, account: rec.account || null, mode: 'instance' };
+  }
   const auth = rec && rec.data ? decrypt(rec.data) : null;
   if (!auth || !auth.token) {
     // An endpoint that takes no key (a model on the LAN) is connected without one. Only when
@@ -273,7 +281,7 @@ export function credentialFor(uid) {
    the provider terms forbid. An API key is what an admin pastes so their household can use the
    Coach; binding it to whoever happened to click first would just look broken, and the daily
    caps are what bound its spend. */
-export const isPersonalCredential = type => type === 'cli-token' || type === 'oauth';
+export const isPersonalCredential = type => type === 'cli-token' || type === 'oauth' || type === 'chatgpt-cli';
 
 /** First profile to actually spend the instance credential binds it — a personal credential
  *  only; an API key is shared by every profile on the instance. */
@@ -320,6 +328,7 @@ export function isConnected() {
   if (cfg.authMode === 'profile') return true;
   const rec = authFor(cfg);
   if (!rec) return !!providerMeta(cfg).keyOptional && !!baseUrlFor(cfg.provider, cfg);
+  if (rec.type === 'chatgpt-cli') return codexLoginReady(cfg);
   return !!decrypt(rec.data);
 }
 

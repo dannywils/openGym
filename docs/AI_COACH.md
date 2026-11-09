@@ -215,6 +215,44 @@ unprivileged, and which account is being spent.
 > setup token — binds to the first profile that spends it and **every other profile is refused**,
 > by design: that is the right behaviour when one person's personal subscription is behind it.
 
+#### Connect the Codex CLI with ChatGPT
+
+Build the `coach` target as above. Give the container's `coach` user write access to its
+private, persistent `/coach-auth` mount, then sign in from the running API container:
+
+```bash
+docker compose exec --user coach -e CODEX_HOME=/coach-auth -e HOME=/coach-auth api codex login --device-auth
+docker compose exec --user coach -e CODEX_HOME=/coach-auth -e HOME=/coach-auth api codex login status
+```
+
+Complete the device sign-in in your browser. The CLI keeps its login in `/coach-auth/auth.json`.
+Keep that directory out of Git and separate from your workout data.
+
+Copy the intended owner's **Account ID** from **Settings → Account**. Stop the API while
+registering the login, since the running API caches the Coach configuration:
+
+```bash
+export OPENGYM_COACH_OWNER_ID='<account-id>'
+docker compose stop api
+docker compose run --rm --no-deps -T -e OPENGYM_COACH_OWNER_ID --entrypoint node api --input-type=module - <<'JS'
+import { load, save } from './coach/config.js';
+
+const owner = process.env.OPENGYM_COACH_OWNER_ID;
+if (!/^[A-Za-z0-9_-]{1,64}$/.test(owner || '')) throw new Error('Set the owner Account ID');
+const config = load();
+save({
+  provider: 'codex',
+  authMode: 'instance',
+  auth: { ...config.auth, codex: { type: 'chatgpt-cli', account: 'ChatGPT' } },
+  boundUid: { ...config.boundUid, codex: owner }
+});
+JS
+docker compose start api
+```
+
+Turn on the Coach in the admin dashboard and select **Test the Coach**. The configuration
+records the owner and the login type. The CLI keeps the credentials in its own mount.
+
 ### A debrief of one workout
 
 **Review my last workout** (in the chat menu, or the chip above the composer) sends the Coach
@@ -595,6 +633,10 @@ The App-Store build has no server of its own, so the Coach there is a choice mad
 `COACH_DISABLED=1` forces the Coach off everywhere regardless of what is stored — the fleet
 operator's kill switch. With the Coach off, `/api/config` carries no `coach` key at all, so no
 Coach UI exists anywhere in the client.
+
+To pause a configured Coach, set `COACH_DISABLED=1` in the Compose `.env` and run
+`docker compose up -d --no-deps api`. The saved provider, owner, and login are available
+when you remove the setting and recreate the API again.
 
 ## Health
 
